@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Espacio Estelar 360 VR</title>
+    <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; background-color: #000000; font-family: sans-serif; color: white; user-select: none; }
+        #canvas-astronómico { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; cursor: pointer; }
+        #contenedor-paneles { position: absolute; top: 20px; right: 20px; width: 280px; z-index: 10; pointer-events: none; }
+        .tarjeta-info { background: rgba(20, 20, 30, 0.95); border-left: 4px solid var(--color-borde, #fff); padding: 14px; border-radius: 6px; margin-bottom: 12px; backdrop-filter: blur(5px); pointer-events: auto; transition: all 0.3s; opacity: 0; transform: translateX(30px); display: none; }
+        .tarjeta-info.visible { display: block; opacity: 1; transform: translateX(0); }
+        .tarjeta-info h2 { margin: 0 0 4px 0; font-size: 1.2rem; }
+        .tarjeta-info .rango { font-size: 0.85rem; font-weight: bold; margin-bottom: 6px; }
+        .tarjeta-info .parrafo { font-size: 0.75rem; color: #fff; margin: 3px 0; }
+        #consola-guia { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(255, 255, 255, 0.1); padding: 10px 24px; border-radius: 30px; font-size: 0.9rem; z-index: 100; pointer-events: none; border: 1px solid white; }
+    </style>
+</head>
+<body>
+
+    <div id="consola-guia">Toca para activar giroscopio 360° | Clic: Datos</div>
+    <canvas id="canvas-astronómico"></canvas>
+    <div id="contenedor-paneles"></div>
+
+    <script>
+        const canvas = document.getElementById('canvas-astronómico');
+        const ctx = canvas.getContext('2d');
+        const panelContenedor = document.getElementById('contenedor-paneles');
+
+        let ancho = canvas.width = window.innerWidth;
+        let alto = canvas.height = window.innerHeight;
+
+        // Variables 360°
+        let yaw = 0, pitch = 0, zoom = 20;
+
+        const estrellasFondo = Array.from({length: 4000}, () => ({
+            x: (Math.random() - 0.5) * 10000, y: (Math.random() - 0.5) * 10000, z: (Math.random() - 0.5) * 10000, 
+            baseSize: Math.random() * 2 + 0.5
+        }));
+
+        const constelaciones = [
+            { nombre: "Osa Mayor", estrellaPrincipal: "Dubhe", color: "#00d4ff", escala: "79 — 124 AL", detalles: ["Estrella principal: Dubhe", "Cerca: Merak", "Estructura: Carro"], puntos: [[-100, 210, 0], [-60, 220, 20], [-20, 200, 30], [0, 160, 50], [50, 150, 80], [40, 100, 60], [-10, 110, 30]] },
+            { nombre: "Osa Menor", estrellaPrincipal: "Polaris", color: "#aaddff", escala: "126 — 432 AL", detalles: ["Estrella principal: Polaris", "Guía del norte"], puntos: [[-200, 180, -100], [-180, 170, -120], [-160, 150, -130], [-150, 120, -130], [-180, 110, -150]] },
+            { nombre: "Casiopea", estrellaPrincipal: "Schedar", color: "#ff00ff", escala: "99 — 613 AL", detalles: ["Estrella principal: Schedar", "Forma: W"], puntos: [[180, 160, 100], [210, 190, 120], [190, 220, 110], [240, 240, 130], [270, 200, 120]] },
+            { nombre: "Orión", estrellaPrincipal: "Betelgeuse", color: "#ffcc00", escala: "243 — 1,340 AL", detalles: ["Estrella principal: Betelgeuse", "Estructura colosal"], puntos: [[-40, -20, -150], [0, 0, -130], [40, -10, -150], [20, -50, -140], [0, -50, -140], [-40, -100, -160]] },
+            { nombre: "Cruz del Sur", estrellaPrincipal: "Acrux", color: "#0066ff", escala: "88 — 364 AL", detalles: ["Estrella principal: Acrux", "Navegación austral"], puntos: [[0, -200, 150], [-30, -240, 170], [0, -270, 180], [30, -230, 160]] }
+        ];
+
+        // Configuración paneles original
+        constelaciones.forEach((c, index) => {
+            const div = document.createElement('div');
+            div.className = 'tarjeta-info'; div.id = `tarjeta-${index}`;
+            div.style.setProperty('--color-borde', c.color);
+            div.innerHTML = `<h2>${c.nombre}</h2><div class="rango" style="color:${c.color}">${c.escala}</div>` + c.detalles.map(d => `<div class="parrafo">• ${d}</div>`).join('');
+            panelContenedor.appendChild(div);
+            c.tarjetaElement = div; c.activa = false;
+        });
+
+        // Activar 360°
+        window.addEventListener("click", () => {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(res => {
+                    if (res === 'granted') window.addEventListener('deviceorientation', (e) => { yaw = e.alpha * (Math.PI/180); pitch = e.beta * (Math.PI/180); });
+                });
+            }
+        });
+
+        function proyectar(x, y, z, offset) {
+            // Rotación 360° en ejes Y (yaw) y X (pitch)
+            let rotX = x * Math.cos(yaw) + z * Math.sin(yaw);
+            let rotZ = -x * Math.sin(yaw) + z * Math.cos(yaw);
+            let rotY = y * Math.cos(pitch) + rotZ * Math.sin(pitch);
+            let finalZ = -y * Math.sin(pitch) + rotZ * Math.cos(pitch);
+            
+            let f = 800 / (800 + finalZ);
+            return { x: rotX * f + offset, y: rotY * f + alto/2 };
+        }
+
+        function render() {
+            let grad = ctx.createRadialGradient(ancho/2, alto/2, 0, ancho/2, alto/2, ancho);
+            grad.addColorStop(0, '#0a0a1a'); grad.addColorStop(1, '#000000');
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, ancho, alto);
+            
+            const offsets = [ancho / 4, (3 * ancho) / 4];
+            offsets.forEach(offset => {
+                estrellasFondo.forEach(e => {
+                    let p = proyectar(e.x, e.y, e.z, offset);
+                    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(p.x, p.y, e.baseSize/2, 0, Math.PI*2); ctx.fill();
+                });
+
+                constelaciones.forEach(c => {
+                    c.puntosCalculados = c.puntos.map(p => proyectar(p[0], p[1], p[2], offset));
+                    ctx.beginPath();
+                    c.puntosCalculados.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+                    ctx.strokeStyle = c.activa ? c.color : 'rgba(255,255,255,0.7)';
+                    ctx.lineWidth = 4; ctx.stroke();
+                    
+                    c.puntosCalculados.forEach(p => {
+                        ctx.beginPath(); ctx.arc(p.x, p.y, c.activa ? 12 : 6, 0, Math.PI*2);
+                        ctx.fillStyle = c.color; ctx.fill();
+                    });
+                });
+            });
+            requestAnimationFrame(render);
+        }
+        canvas.onclick = (e) => {
+            constelaciones.forEach(c => {
+                let hit = c.puntosCalculados.some(p => Math.hypot(e.clientX - p.x, e.clientY - p.y) < 50);
+                c.activa = hit ? !c.activa : false;
+                c.tarjetaElement.classList.toggle('visible', c.activa);
+            });
+        };
+        render();
+    </script>
+</body>
+</html>
